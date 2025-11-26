@@ -12,7 +12,7 @@ pipeline {
         DOCKERHUB_CREDENTIALS_ID = 'dockerhub-creds'
         IMAGE_NAME_SERVER = 'rahmaaribi/mern-server'
         IMAGE_NAME_CLIENT = 'rahmaaribi/mern-client'
-        TRIVY_CACHE = 'C:\\Users\\Public\\trivy-cache' // local cache folder on Windows
+        TRIVY_CACHE = 'C:\\Users\\Public\\trivy-cache'
     }
 
     stages {
@@ -20,6 +20,17 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
+            }
+        }
+
+        stage('Prepare Trivy Cache') {
+            steps {
+                bat """
+                if not exist "${TRIVY_CACHE}" mkdir "${TRIVY_CACHE}"
+                docker run --rm ^
+                -v ${TRIVY_CACHE}:/root/.cache/ ^
+                aquasec/trivy:latest --download-db-only
+                """
             }
         }
 
@@ -50,7 +61,7 @@ pipeline {
                     docker run --rm ^
                     -v ${TRIVY_CACHE}:/root/.cache/ ^
                     aquasec/trivy:latest ^
-                    image --timeout 5m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
+                    image --timeout 10m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
                     """
                 }
             }
@@ -63,7 +74,7 @@ pipeline {
                     docker run --rm ^
                     -v ${TRIVY_CACHE}:/root/.cache/ ^
                     aquasec/trivy:latest ^
-                    image --timeout 5m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
+                    image --timeout 10m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
                     """
                 }
             }
