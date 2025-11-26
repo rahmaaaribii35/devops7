@@ -12,7 +12,6 @@ pipeline {
         DOCKERHUB_CREDENTIALS_ID = 'dockerhub-creds'
         IMAGE_NAME_SERVER = 'rahmaaribi/mern-server'
         IMAGE_NAME_CLIENT = 'rahmaaribi/mern-client'
-        TRIVY_CACHE = 'C:\\Users\\Public\\trivy-cache'
     }
 
     stages {
@@ -23,18 +22,36 @@ pipeline {
             }
         }
 
-        stage('Prepare Trivy Cache') {
+        // ------------------------------
+        // 🔹 Détection des changements 🔹
+        // ------------------------------
+        stage('Detect Changes') {
             steps {
-                bat """
-                if not exist "${TRIVY_CACHE}" mkdir "${TRIVY_CACHE}"
-                docker run --rm ^
-                -v ${TRIVY_CACHE}:/root/.cache/ ^
-                aquasec/trivy:latest --download-db-only
-                """
+                script {
+                    // Vérifier si le dossier server a changé
+                    def serverChanges = bat(
+                        script: 'git diff --name-only HEAD~1 HEAD | findstr /R "^server/"',
+                        returnStatus: true
+                    ) == 0
+                    env.SERVER_CHANGED = serverChanges ? "true" : "false"
+
+                    // Vérifier si le dossier client a changé
+                    def clientChanges = bat(
+                        script: 'git diff --name-only HEAD~1 HEAD | findstr /R "^client/"',
+                        returnStatus: true
+                    ) == 0
+                    env.CLIENT_CHANGED = clientChanges ? "true" : "false"
+
+                    echo "Server changed: ${env.SERVER_CHANGED}"
+                    echo "Client changed: ${env.CLIENT_CHANGED}"
+                }
             }
         }
 
         stage('Build Server Image') {
+            when {
+                expression { env.SERVER_CHANGED == "true" }
+            }
             steps {
                 dir('server') {
                     script {
@@ -45,6 +62,9 @@ pipeline {
         }
 
         stage('Build Client Image') {
+            when {
+                expression { env.CLIENT_CHANGED == "true" }
+            }
             steps {
                 dir('client') {
                     script {
@@ -55,26 +75,30 @@ pipeline {
         }
 
         stage('Scan Server Image') {
+            when {
+                expression { env.SERVER_CHANGED == "true" }
+            }
             steps {
                 script {
                     bat """
                     docker run --rm ^
-                    -v ${TRIVY_CACHE}:/root/.cache/ ^
-                    aquasec/trivy:latest ^
-                    image --timeout 10m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
+                    -v //var/run/docker.sock:/var/run/docker.sock ^
+                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
                     """
                 }
             }
         }
 
         stage('Scan Client Image') {
+            when {
+                expression { env.CLIENT_CHANGED == "true" }
+            }
             steps {
                 script {
                     bat """
                     docker run --rm ^
-                    -v ${TRIVY_CACHE}:/root/.cache/ ^
-                    aquasec/trivy:latest ^
-                    image --timeout 10m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
+                    -v //var/run/docker.sock:/var/run/docker.sock ^
+                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
                     """
                 }
             }
@@ -84,17 +108,25 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('', DOCKERHUB_CREDENTIALS_ID) {
-                        dockerImageServer.push('latest')
-                        dockerImageClient.push('latest')
+                        if (env.SERVER_CHANGED == "true") {
+                            dockerImageServer.push('latest')
+                        }
+                        if (env.CLIENT_CHANGED == "true") {
+                            dockerImageClient.push('latest')
+                        }
                     }
                 }
             }
         }
     }
 
+    // ------------------------------
+    // 🔥 NETTOYAGE AUTOMATIQUE 🔥
+    // ------------------------------
     post {
         always {
             echo "🧹 Nettoyage des images et conteneurs Docker..."
+
             bat """
             echo Suppression des conteneurs stoppés...
             docker container prune -f
