@@ -12,6 +12,7 @@ pipeline {
         DOCKERHUB_CREDENTIALS_ID = 'dockerhub-creds'
         IMAGE_NAME_SERVER = 'rahmaaribi/mern-server'
         IMAGE_NAME_CLIENT = 'rahmaaribi/mern-client'
+        TRIVY_CACHE = 'C:\\Users\\Public\\trivy-cache' // local cache folder on Windows
     }
 
     stages {
@@ -47,8 +48,9 @@ pipeline {
                 script {
                     bat """
                     docker run --rm ^
-                    -v //var/run/docker.sock:/var/run/docker.sock ^
-                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
+                    -v ${TRIVY_CACHE}:/root/.cache/ ^
+                    aquasec/trivy:latest ^
+                    image --timeout 5m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_SERVER}:latest
                     """
                 }
             }
@@ -59,8 +61,9 @@ pipeline {
                 script {
                     bat """
                     docker run --rm ^
-                    -v //var/run/docker.sock:/var/run/docker.sock ^
-                    aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
+                    -v ${TRIVY_CACHE}:/root/.cache/ ^
+                    aquasec/trivy:latest ^
+                    image --timeout 5m --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL ${IMAGE_NAME_CLIENT}:latest
                     """
                 }
             }
@@ -78,13 +81,9 @@ pipeline {
         }
     }
 
-    // ------------------------------
-    // 🔥 NETTOYAGE AUTOMATIQUE ICI 🔥
-    // ------------------------------
     post {
         always {
             echo "🧹 Nettoyage des images et conteneurs Docker..."
-
             bat """
             echo Suppression des conteneurs stoppés...
             docker container prune -f
